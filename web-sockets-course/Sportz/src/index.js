@@ -1,4 +1,7 @@
-﻿import express from "express";
+﻿import AgentAPI from "apminsight";
+AgentAPI.config();
+
+import express from "express";
 import http from "http";
 import { matchRouter } from "./routes/matches.js";
 import { attachWebSocketServer } from "./ws/server.js";
