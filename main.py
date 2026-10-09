@@ -5,7 +5,11 @@ import os
 
 from agent_framework import Agent
 from agent_framework.openai import OpenAIChatCompletionClient 
+from azure.identity import AzureCliCredential
 from dotenv import load_dotenv
+
+DEFAULT_FOUNDRY_ENDPOINT = "https://nicovermeir-4297-resource.services.ai.azure.com"
+DEFAULT_FOUNDRY_MODEL = "gpt-5.4-nano"
 
 DEFAULT_GITHUB_MODELS_ENDPOINT = "https://models.github.ai/inference"
 DEFAULT_GITHUB_MODELS_MODEL = "openai/gpt-4o-mini"
@@ -23,6 +27,14 @@ def github_models_client(*, model: str | None = None) -> OpenAIChatCompletionCli
         api_key=require_env("GITHUB_TOKEN"),
         base_url=os.getenv("GITHUB_MODELS_ENDPOINT") or DEFAULT_GITHUB_MODELS_ENDPOINT
     )
+
+def foundry_client() -> OpenAIChatCompletionClient:
+    kwargs: dict[str, object] = {
+        "model": DEFAULT_FOUNDRY_MODEL,
+        "azure_endpoint": DEFAULT_FOUNDRY_ENDPOINT,
+        "credential": AzureCliCredential()
+    }
+    return OpenAIChatCompletionClient(**kwargs)
 
 def build_joker_agent(*, model: str | None = None) -> Agent:
     return Agent(
