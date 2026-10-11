@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+from pathlib import Path
 
 from agent_framework import Agent, AgentResponse, AgentSession
 from agent_framework.devui import serve
@@ -18,6 +20,8 @@ DEFAULT_FOUNDRY_MODEL = "gpt-5.4-nano"
 DEFAULT_GITHUB_MODELS_ENDPOINT = "https://models.github.ai/inference"
 DEFAULT_GITHUB_MODELS_MODEL = "openai/gpt-4o-mini"
 DEFAULT_PROMPT = "Tell me a joke about a pirate."
+
+FILE_SESSION_PATH = "session.json"
 
 
 def require_env(name: str) -> str:
@@ -83,15 +87,39 @@ def usage_summary(response: AgentResponse) -> str:
     return f"Usage summary: input={input_tokens}, output={output_tokens}, total={total_tokens}"
 
 
-PROMPTS = ("Tell me 3 jokes about celebrities.", "List the celebrities you used in those jokes.")
+def save_session(path: Path, session: AgentSession) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(session.to_dict(), indent=2), encoding="utf-8")
+
+
+def load_session(path: Path) -> AgentSession | None:
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return AgentSession.from_dict(data)
+
+
+PROMPTS = (
+    "Tell me 3 jokes about celebrities.",
+    "List the celebrities you used in those jokes.",
+    "Tell me 3 jokes about pirates.",
+)
 
 
 async def async_main() -> None:
     joker = build_joker_agent()
-    session: AgentSession = joker.create_session()
+    path = Path(FILE_SESSION_PATH)
+    session: AgentSession | None = load_session(path)
+
+    if session is None:
+        session = joker.create_session()
+        print(f"Created new local session: {session.session_id}")
+    else:
+        print(f"Loaded local session: {session.session_id}")
 
     for prompt in PROMPTS:
         response = await joker.run(prompt, session=session)
+        save_session(path, session)
         print(f"You: {prompt}")
         print(f"Joker: {response.text}")
         print(usage_summary(response))
