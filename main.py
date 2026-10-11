@@ -5,8 +5,19 @@ import json
 import os
 from pathlib import Path
 
-from agent_framework import Agent, AgentResponse, AgentSession
-from agent_framework.devui import serve
+from agent_framework import (
+    Agent,
+    AgentResponse,
+    AgentSession,
+    CompactionProvider,
+    CompactionStrategy,
+    InMemoryHistoryProvider,
+    Message,
+    SlidingWindowStrategy,
+    SummarizationStrategy,
+    TruncationStrategy,
+    included_messages,
+)
 from agent_framework.openai import OpenAIChatCompletionClient
 from azure.identity import AzureCliCredential
 from dotenv import load_dotenv
@@ -22,6 +33,8 @@ DEFAULT_GITHUB_MODELS_MODEL = "openai/gpt-4o-mini"
 DEFAULT_PROMPT = "Tell me a joke about a pirate."
 
 FILE_SESSION_PATH = "session.json"
+
+DEFAULT_STRATEGY = "summarization"
 
 
 def require_env(name: str) -> str:
@@ -87,6 +100,31 @@ def usage_summary(response: AgentResponse) -> str:
     return f"Usage summary: input={input_tokens}, output={output_tokens}, total={total_tokens}"
 
 
+def build_strategy(name: str) -> CompactionStrategy:
+    if name == "truncation":
+        return TruncationStrategy(max_n=18, compact_to=10)
+
+    if name == "sliding-window":
+        return SlidingWindowStrategy(keep_last_groups=6)
+
+    if name == "summarization":
+        return SummarizationStrategy(
+            client=github_client(),
+            target_count=8,
+            threshold=2,
+            prompt="Summarize the user's preferences, important facts, and unresolved threads only",
+        )
+
+    raise ValueError(f"Unknown compaction strategy: {name}")
+
+
+def print_history_stats(session: AgentSession, history: InMemoryHistoryProvider) -> None:
+    stored: list[Message] = session.state.get(history.source_id, {}).get("messages", [])
+    included = included_messages(stored)
+
+    print(f"History snapshot: stored={len(stored)} | included={len(included)}")
+
+
 def save_session(path: Path, session: AgentSession) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(session.to_dict(), indent=2), encoding="utf-8")
@@ -107,29 +145,42 @@ PROMPTS = (
 
 
 async def async_main() -> None:
-    joker = build_joker_agent()
-    path = Path(FILE_SESSION_PATH)
-    session: AgentSession | None = load_session(path)
+    history = InMemoryHistoryProvider(skip_excluded=True)
+    compaction = CompactionProvider(
+        after_strategy=build_strategy(DEFAULT_STRATEGY), history_source_id=history.source_id
+    )
 
-    if session is None:
-        session = joker.create_session()
-        print(f"Created new local session: {session.session_id}")
-    else:
-        print(f"Loaded local session: {session.session_id}")
+    agent = Agent(
+        client=github_client(),
+        name="CompactingAgent",
+        instructions=(
+            "You are a witty assistant. "
+            "Remember the user's preferences when enough history is still available."
+        ),
+        context_providers=[history, compaction],
+    )
+    session = agent.create_session()
 
-    for prompt in PROMPTS:
-        response = await joker.run(prompt, session=session)
-        save_session(path, session)
-        print(f"You: {prompt}")
-        print(f"Joker: {response.text}")
+    while True:
+        user_input = input("You: ").strip()
+        if not user_input or user_input == "/quit":
+            break
+
+        if user_input == "/history":
+            print_history_stats(session, history)
+            print()
+            continue
+
+        response = await agent.run(user_input, session=session)
+        print(f"Assistant: {response.text}")
         print(usage_summary(response))
+        print_history_stats(session, history)
         print()
 
 
 def main():
     load_dotenv()
     asyncio.run(async_main())
-    serve(entities=build_entities(), auth_enabled=False, auto_open=True)
 
 
 if __name__ == "__main__":
