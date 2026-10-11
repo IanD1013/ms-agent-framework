@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import os
 
 from agent_framework import Agent
+from agent_framework.devui import serve
 from agent_framework.openai import OpenAIChatCompletionClient
 from azure.identity import AzureCliCredential
 from dotenv import load_dotenv
@@ -60,6 +60,18 @@ def build_joker_agent() -> Agent:
     )
 
 
+def build_translator_agent() -> Agent:
+    return Agent(
+        client=github_client(),
+        name="Translator",
+        instructions="You are a helpful translator. Translate every answer into French.",
+    )
+
+
+def build_entities() -> list[Agent]:
+    return [build_joker_agent(), build_translator_agent()]
+
+
 async def async_main() -> None:
     joker = build_joker_agent()
     print(f"Sending prompt to {joker.name}: {DEFAULT_PROMPT}")
@@ -69,7 +81,8 @@ async def async_main() -> None:
 
 def main():
     load_dotenv()
-    asyncio.run(async_main())
+    # asyncio.run(async_main())
+    serve(entities=build_entities(), auth_enabled=False, auto_open=True)
 
 
 if __name__ == "__main__":
