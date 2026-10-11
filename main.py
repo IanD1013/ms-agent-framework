@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import os
 
-from agent_framework import Agent
+from agent_framework import Agent, AgentResponse, AgentSession
 from agent_framework.devui import serve
 from agent_framework.openai import OpenAIChatCompletionClient
 from azure.identity import AzureCliCredential
@@ -54,9 +55,7 @@ def build_joker_agent() -> Agent:
     return Agent(
         client=github_client(),
         name="Joker",
-        instructions=(
-            "You are good at telling jokes. You always respond in the style of Shakespeare."
-        ),
+        instructions=("You are good at telling jokes."),
     )
 
 
@@ -72,16 +71,36 @@ def build_entities() -> list[Agent]:
     return [build_joker_agent(), build_translator_agent()]
 
 
+def usage_summary(response: AgentResponse) -> str:
+    usage = response.usage_details
+    if usage is None:
+        return "Usage summary: unavailable"
+
+    input_tokens = usage.get("input_token_count")
+    output_tokens = usage.get("output_token_count")
+    total_tokens = usage.get("total_token_count")
+
+    return f"Usage summary: input={input_tokens}, output={output_tokens}, total={total_tokens}"
+
+
+PROMPTS = ("Tell me 3 jokes about celebrities.", "List the celebrities you used in those jokes.")
+
+
 async def async_main() -> None:
     joker = build_joker_agent()
-    print(f"Sending prompt to {joker.name}: {DEFAULT_PROMPT}")
-    response = await joker.run(DEFAULT_PROMPT)
-    print(response.text)
+    session: AgentSession = joker.create_session()
+
+    for prompt in PROMPTS:
+        response = await joker.run(prompt, session=session)
+        print(f"You: {prompt}")
+        print(f"Joker: {response.text}")
+        print(usage_summary(response))
+        print()
 
 
 def main():
     load_dotenv()
-    # asyncio.run(async_main())
+    asyncio.run(async_main())
     serve(entities=build_entities(), auth_enabled=False, auto_open=True)
 
 
